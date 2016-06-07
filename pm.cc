@@ -1,14 +1,80 @@
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
+#include <stdlib.h>
 #include <string>
+#include <unistd.h>
 
+class PMException: public std::runtime_error {
+public:
+    PMException(std::string const &message): std::runtime_error(message) {}
+};
+
+std::string run_man(const std::string &filename);
 std::string to_html(const std::string &man_string);
+std::string write_to_tempfile(const std::string &str);
 
-int main() {
-    std::ios_base::sync_with_stdio(false);
-    std::ostringstream instream;
-    instream << std::cin.rdbuf();
-    std::cout << to_html(instream.str());
+int main(int argc, const char *argv[]) {
+    try {
+        if (argc == 1) {
+            throw PMException("No man page provided.");
+        } else if (argc > 2) {
+            std::cerr << "Warning: Extraneous arguments ignored." << std::endl;
+        }
+        std::string tempfile = write_to_tempfile(to_html(run_man(argv[1])));
+        std::cout << tempfile << std::endl;
+    } catch (PMException &e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        exit(1);
+    }
+}
+
+// TODO: Customizable COLUMNS
+std::string run_man(const std::string &filename) {
+    char *path; // path won't be freed; it's okay
+    if ((path = realpath(filename.c_str(), NULL)) == NULL) {
+        throw PMException("Cannot resolve " + filename + ".");
+    }
+
+    setenv("PAGER", "cat", 1);
+    setenv("COLUMNS", "120", 1);
+
+    int fds[2];
+    pipe(fds);
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        const char *argv[3] = {"man", path, NULL};
+        if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
+            errno == ENOENT) {
+            throw PMException("man(1) not found.");
+        } else {
+            throw PMException("Unknown error occurred when calling man(1).");
+        }
+    }
+
+    close(fds[1]);
+
+    int status;
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
+        throw PMException("Call to man(1) failed.");
+    }
+
+    char buf[4097];
+    std::string str;
+    ssize_t size;
+    while ((size = read(fds[0], buf, 4096)) != 0) {
+        if (size == -1) {
+            throw PMException("Failed to read from pipe.");
+        }
+        buf[size] = '\0';
+        str += buf;
+    }
+    return str;
 }
 
 std::string to_html(const std::string &man_string) {
@@ -123,6 +189,27 @@ std::string to_html(const std::string &man_string) {
 )";
 
     return hs;
+}
+
+std::string write_to_tempfile(const std::string &str) {
+    char name[] = "/tmp/pm-XXXXXX.html";
+    int fd = mkstemps(name, 5);
+    if (fd == -1) {
+        throw PMException("Failed to create temp file.");
+    }
+    const char *ptr = str.c_str();
+    ssize_t bytes_written = 0;
+    ssize_t length = str.length();
+    while (bytes_written < length) {
+        ssize_t size = write(fd, ptr, length - bytes_written);
+        if (size == -1) {
+            throw PMException("Failed to write to fd " + std::to_string(fd) + ".");
+        }
+        bytes_written += size;
+        ptr += size;
+    }
+    close(fd);
+    return std::string(name);
 }
 
 // Local Variables:
