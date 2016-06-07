@@ -112,6 +112,15 @@ std::string to_html(const std::string &man_string) {
 
         // Shrink consecutive blank lines into one
         if (ch == '\n' && ms[i+1] == '\n') {
+            // First close markup tags
+            if (inbold) {
+                hs += "</b>";
+                inbold = false;
+            }
+            if (initalic) {
+                hs += "</u>";
+                initalic = false;
+            }
             hs += "\n\n";
             i += 2;
             while (ms[i] == '\n') {
