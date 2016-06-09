@@ -85,6 +85,7 @@ std::string to_html(const std::string &man_string) {
 
     // The HTML string to be constructed from ms
     std::string hs = R"(<!DOCTYPE html>
+<html>
 <head>
 <title>man page</title>
 <style type="text/css">
