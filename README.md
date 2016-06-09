@@ -9,4 +9,6 @@
 
 - A C++11 compiler;
 - A POSIX system with `man(1)`;
-- Either `xdg-open(1)` or `open(1)` for opening URLs in the default browser.
+- Python 3.3 or later;
+- A modern web browser with support for server-sent events
+  ([no Microsoft for you!](http://caniuse.com/#feat=eventsource)).

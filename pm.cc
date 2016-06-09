@@ -191,11 +191,24 @@ std::string to_html(const std::string &man_string) {
         ++i;
     }
 
-    hs += R"(
+    hs += R"_(
 </pre>
+<script>
+(function () {
+  var source = new EventSource('/events')
+  source.addEventListener('update', function (e) {
+    console.log('refresh')
+    document.getElementById('manpage').innerHTML = JSON.parse(e.data).content
+  })
+  source.addEventListener('bye', function (e) {
+    console.log('bye')
+    source.close()
+  })
+})()
+</script>
 </body>
 </html>
-)";
+)_";
 
     return hs;
 }
