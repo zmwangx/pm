@@ -198,11 +198,9 @@ std::string to_html(const std::string &man_string) {
 (function () {
   var source = new EventSource('/events')
   source.addEventListener('update', function (e) {
-    console.log('refresh')
     document.getElementById('manpage').innerHTML = JSON.parse(e.data).content
   })
   source.addEventListener('bye', function (e) {
-    console.log('bye')
     source.close()
   })
 })()
