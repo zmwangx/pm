@@ -146,7 +146,7 @@ def main():
         should_wakeup.set()
         events_lock.release()
 
-    signal.signal(signal.SIGTSTP, update_content)
+    signal.signal(signal.SIGUSR1, update_content)
 
     logger.info('HTTP server listening on %s', url)
     httpd_thread = threading.Thread(target=httpd.serve_forever)

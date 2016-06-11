@@ -1,12 +1,23 @@
+#include <condition_variable>
+#include <fcntl.h>
 #include <iostream>
 #include <libgen.h>
+#include <mutex>
 #include <signal.h>
-#include <sstream>
 #include <stdexcept>
 #include <stdlib.h>
 #include <string>
+#include <sys/stat.h>
+#include <thread>
 #include <time.h>
 #include <unistd.h>
+
+std::thread server_controller_thread;
+pid_t server_pid = 0;
+bool server_not_running = true;
+bool shutting_down = false;
+std::mutex mtx;
+std::condition_variable_any cv;
 
 class PMException: public std::runtime_error {
 public:
@@ -14,10 +25,17 @@ public:
 };
 
 void log(const char *msg);
-std::string run_man(const std::string &filename);
+std::string run_man(const std::string &manfile);
 std::string to_html(const std::string &man_string);
-std::string write_to_tempfile(const std::string &str);
-void start_server(const std::string &progpath, const std::string &filepath);
+int get_tempfile(std::string &tempfile);
+void write_to_file(const std::string &str, const std::string &filepath);
+void start_server(const std::string &progpath, const std::string &tempfile);
+int get_mtime(const std::string &filepath, timespec &mtime);
+void watch_for_changes(const std::string &manfile, const std::string &tempfile,
+                       const timespec &initial_mtime);
+void sigchld_listener(int sig);
+void sigint_term_listener(int sig);
+bool operator <(const timespec& lhs, const timespec& rhs);
 
 int main(int argc, const char *argv[]) {
     try {
@@ -26,8 +44,30 @@ int main(int argc, const char *argv[]) {
         } else if (argc > 2) {
             std::cerr << "Warning: Extraneous arguments ignored." << std::endl;
         }
-        std::string tempfile = write_to_tempfile(to_html(run_man(argv[1])));
-        start_server(argv[0], tempfile);
+
+        std::string manfile = argv[1];
+        timespec initial_mtime;
+        if (get_mtime(argv[1], initial_mtime) == -1) {
+            // std::ostringstream msg;
+            // msg << "Failed to stat " << argv[1] << ".";
+            throw PMException("Failed to stat " + manfile + ".");
+        }
+
+        std::string tempfile;
+        int fd = get_tempfile(tempfile);
+        if (fd == -1) {
+            throw PMException("Failed to create temp file.");
+        }
+        close(fd);
+        write_to_file(to_html(run_man(manfile)), tempfile);
+
+        signal(SIGCHLD, sigchld_listener);
+        signal(SIGINT, sigint_term_listener);
+        signal(SIGTERM, sigint_term_listener);
+
+        server_controller_thread = std::thread(start_server, argv[0], tempfile);
+        watch_for_changes(manfile, tempfile, initial_mtime);
+        server_controller_thread.join();
     } catch (PMException &e) {
         std::cerr << "Error: " << e.what() << std::endl;
         exit(1);
@@ -38,17 +78,17 @@ void log(const char *msg) {
     // Keep logging format inline with server.py
     // Not thread safe
     time_t t = time(0);
-    struct tm *now = localtime(&t);
+    tm *now = localtime(&t);
     char timestr[128];
     strftime(timestr, 127, "%d/%b/%Y %H:%M:%S", now);
     std::cerr << "[" << timestr << "] " << msg << std::endl;
 }
 
 // TODO: Customizable COLUMNS
-std::string run_man(const std::string &filename) {
+std::string run_man(const std::string &manfile) {
     char *path; // path won't be freed; it's okay
-    if ((path = realpath(filename.c_str(), NULL)) == NULL) {
-        throw PMException("Cannot resolve " + filename + ".");
+    if ((path = realpath(manfile.c_str(), NULL)) == NULL) {
+        throw PMException("Cannot resolve " + manfile + ".");
     }
 
     setenv("PAGER", "cat", 1);
@@ -227,11 +267,17 @@ std::string to_html(const std::string &man_string) {
     return hs;
 }
 
-std::string write_to_tempfile(const std::string &str) {
+int get_tempfile(std::string &tempfile) {
     char name[] = "/tmp/pm-XXXXXX.html";
     int fd = mkstemps(name, 5);
+    tempfile = name;
+    return fd;
+}
+
+void write_to_file(const std::string &str, const std::string &filepath) {
+    int fd = open(filepath.c_str(), O_WRONLY);
     if (fd == -1) {
-        throw PMException("Failed to create temp file.");
+        throw PMException("Failed to open " + str + " for writing.");
     }
     const char *ptr = str.c_str();
     ssize_t bytes_written = 0;
@@ -245,41 +291,105 @@ std::string write_to_tempfile(const std::string &str) {
         ptr += size;
     }
     close(fd);
-    return std::string(name);
 }
 
-void start_server(const std::string &progpath, const std::string &filepath) {
+void start_server(const std::string &progpath, const std::string &tempfile) {
     char *execpath = strdup(progpath.c_str()); // won't be freed
     std::string server_bin = dirname(execpath);
     server_bin += "/../libexec/pm/server.py";
-    const char *const argv[] = {server_bin.c_str(), filepath.c_str(), NULL};
+    const char *const argv[] = {server_bin.c_str(), tempfile.c_str(), NULL};
 
     while (1) {
-        // Infinite loop to restart server if it ever crashes
-        log("Starting server...");
-        pid_t pid = fork();
-        if (pid == 0) {
-            if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
-                errno == ENOENT) {
-                throw PMException("server.py not found.");
-            } else {
-                throw PMException("Unknown error occurred when calling server.py.");
+        // Infinite loop to restart server if it ever crashes until
+        // shutdown signal is received
+        cv.wait(mtx, []() { return server_not_running || shutting_down; });
+        if (server_not_running) {
+            log("Starting server...");
+            server_not_running = false;
+            cv.notify_all();
+            mtx.unlock();
+            server_pid = fork();
+            if (server_pid == 0) {
+                if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
+                    errno == ENOENT) {
+                    throw PMException("server.py not found.");
+                } else {
+                    throw PMException("Unknown error occurred when calling server.py.");
+                }
             }
+        } else if (shutting_down) {
+            mtx.unlock();
+            // Wait for the server to gracefully shutdown itself for at most
+            // five seconds before force killing
+            for (int t = 0; t < 5; ++t) {
+                if (waitpid(server_pid, NULL, WNOHANG) == -1 && errno == ECHILD) {
+                    exit(0);
+                }
+                return;
+            }
+            log("Server not responding, force shutting down...");
+            kill(server_pid, SIGKILL);
+            return;
         }
-        waitpid(pid, NULL, 0);
     }
 }
 
-void stop_server_and_exit(int sig) {
-    // Signal child processes and wait for at most five seconds before force
-    // killing.
-    kill(0, sig);
-    for (int t = 0; t < 5; ++t) {
-        pid_t pid = waitpid(0, NULL, WNOHANG);
-        if (pid == -1 && errno == ECHILD) {
-            exit(0);
+int get_mtime(const std::string &filepath, timespec &mtime) {
+    struct stat st;
+    const char *path = filepath.c_str();
+    if (stat(path, &st) == -1) {
+        return -1;
+    }
+    mtime = st.st_mtimespec;
+    return 0;
+}
+
+void watch_for_changes(const std::string &manfile, const std::string &tempfile,
+                       const timespec &initial_mtime) {
+    timespec last_mtime = initial_mtime;
+    timespec mtime;
+    // Poll for changes
+    while (true) {
+        if (shutting_down) {
+            break;
+        }
+        if (get_mtime(manfile, mtime) == -1) {
+            std::cerr << "Warning: Failed to stat " << manfile << "." << std::endl;
+            sleep(2);
+        }
+        if (last_mtime < mtime) {
+            log("Change detected.");
+            write_to_file(to_html(run_man(manfile)), tempfile);
+            kill(server_pid, SIGUSR1);
+            last_mtime = mtime;
         }
         sleep(1);
+    }
+}
+
+void sigchld_listener(int sig) {
+    // Reap server process; WNOHANG to ignore when server is merely stopped
+    if (waitpid(server_pid, NULL, WNOHANG) == server_pid) {
+        log("Server crashed...");
+        mtx.lock();
+        server_not_running = true;
+        mtx.unlock();
+        cv.notify_all();
+    }
+}
+
+void sigint_term_listener(int sig) {
+    mtx.lock();
+    shutting_down = true;
+    mtx.unlock();
+    cv.notify_all();
+}
+
+bool operator <(const timespec& lhs, const timespec& rhs) {
+    if (lhs.tv_sec == rhs.tv_sec) {
+        return lhs.tv_nsec < rhs.tv_nsec;
+    } else {
+        return lhs.tv_sec < rhs.tv_sec;
     }
 }
 
