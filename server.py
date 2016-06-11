@@ -82,6 +82,7 @@ class PMHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
+            socket_closed_by_other_end = False
             while True:
                 should_wakeup.wait()
                 events_lock.acquire()
@@ -89,16 +90,25 @@ class PMHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
                     updated_content = {
                         'content': extract_manpage_content(self.file_path)
                     }
-                    self.__write('event: update\n')
-                    self.__write('data: ' + json.dumps(updated_content) + '\n\n')
+                    try:
+                        self.__write('event: update\n')
+                        self.__write('data: ' + json.dumps(updated_content) + '\n\n')
+                    except BrokenPipeError:
+                        socket_closed_by_other_end = True
                     should_update.clear()
                 if server_shutting_down.is_set():
-                    self.__write('event: bye\n')
-                    self.__write('data: {}\n\n')
+                    try:
+                        self.__write('event: bye\n')
+                        self.__write('data: {}\n\n')
+                    except BrokenPipeError:
+                        socket_closed_by_other_end = True
                     self.close_connection = True
                     break
                 should_wakeup.clear()
                 events_lock.release()
+                if socket_closed_by_other_end:
+                    logger.warning('Warning: Socket closed by the other end.')
+                    break
         else:
             self.send_error(404)
 

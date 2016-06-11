@@ -1,8 +1,11 @@
 #include <iostream>
+#include <libgen.h>
+#include <signal.h>
 #include <sstream>
 #include <stdexcept>
 #include <stdlib.h>
 #include <string>
+#include <time.h>
 #include <unistd.h>
 
 class PMException: public std::runtime_error {
@@ -10,9 +13,11 @@ public:
     PMException(std::string const &message): std::runtime_error(message) {}
 };
 
+void log(const char *msg);
 std::string run_man(const std::string &filename);
 std::string to_html(const std::string &man_string);
 std::string write_to_tempfile(const std::string &str);
+void start_server(const std::string &progpath, const std::string &filepath);
 
 int main(int argc, const char *argv[]) {
     try {
@@ -22,11 +27,21 @@ int main(int argc, const char *argv[]) {
             std::cerr << "Warning: Extraneous arguments ignored." << std::endl;
         }
         std::string tempfile = write_to_tempfile(to_html(run_man(argv[1])));
-        std::cout << tempfile << std::endl;
+        start_server(argv[0], tempfile);
     } catch (PMException &e) {
         std::cerr << "Error: " << e.what() << std::endl;
         exit(1);
     }
+}
+
+void log(const char *msg) {
+    // Keep logging format inline with server.py
+    // Not thread safe
+    time_t t = time(0);
+    struct tm *now = localtime(&t);
+    char timestr[128];
+    strftime(timestr, 127, "%d/%b/%Y %H:%M:%S", now);
+    std::cerr << "[" << timestr << "] " << msg << std::endl;
 }
 
 // TODO: Customizable COLUMNS
@@ -231,6 +246,41 @@ std::string write_to_tempfile(const std::string &str) {
     }
     close(fd);
     return std::string(name);
+}
+
+void start_server(const std::string &progpath, const std::string &filepath) {
+    char *execpath = strdup(progpath.c_str()); // won't be freed
+    std::string server_bin = dirname(execpath);
+    server_bin += "/../libexec/pm/server.py";
+    const char *const argv[] = {server_bin.c_str(), filepath.c_str(), NULL};
+
+    while (1) {
+        // Infinite loop to restart server if it ever crashes
+        log("Starting server...");
+        pid_t pid = fork();
+        if (pid == 0) {
+            if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
+                errno == ENOENT) {
+                throw PMException("server.py not found.");
+            } else {
+                throw PMException("Unknown error occurred when calling server.py.");
+            }
+        }
+        waitpid(pid, NULL, 0);
+    }
+}
+
+void stop_server_and_exit(int sig) {
+    // Signal child processes and wait for at most five seconds before force
+    // killing.
+    kill(0, sig);
+    for (int t = 0; t < 5; ++t) {
+        pid_t pid = waitpid(0, NULL, WNOHANG);
+        if (pid == -1 && errno == ECHILD) {
+            exit(0);
+        }
+        sleep(1);
+    }
 }
 
 // Local Variables:
