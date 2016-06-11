@@ -12,3 +12,7 @@
 - Python 3.3 or later;
 - A modern web browser with support for server-sent events
   ([no Microsoft for you!](http://caniuse.com/#feat=eventsource)).
+
+Optional:
+
+- [`py-setproctitle`](https://github.com/dvarrazzo/py-setproctitle) — used to set the server process title to `pmserver`, useful for monitoring server status (otherwise, the process will have a generic title `python`).

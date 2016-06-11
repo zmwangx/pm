@@ -13,6 +13,12 @@ import socketserver
 import threading
 import webbrowser
 
+try:
+    import setproctitle
+    setproctitle.setproctitle('pmserver')
+except Exception:
+    pass
+
 # Set up logger
 logging.basicConfig(
     format='[%(asctime)s] %(message)s',
