@@ -24,18 +24,146 @@ public:
     PMException(std::string const &message): std::runtime_error(message) {}
 };
 
+/**
+ * Prints help text for the program.
+ */
 void print_help();
+
+/**
+ * Logs a message to stderr.
+ *
+ * The logging format conforms to the format of logs emitted by the http.server
+ * module of Python 3, i.e., a logged message looks like
+ *
+ *     [14/Jun/2016 06:24:50] Starting server...
+ *
+ * Note that a newline is printed after the message.
+ *
+ * @param msg The message to be logged.
+ */
 void log(const char *msg);
+
+/**
+ * Calls man(1) on the supplied file and returns the output.
+ *
+ * man(1) is run with PAGER set to cat(1) and COLUMNS set to 120. Only stdout
+ * is captured; warnings emitted by man(1) go straight to stderr.
+ *
+ * @param manfile Path to the man page file to be rendered with man(1).
+ * @returns Output captured on the stdout of man(1).
+ * @throws PMException
+ *         If the man(1) call fails for whatever reason.
+ * @see to_html
+ */
 std::string run_man(const std::string &manfile);
+
+/**
+ * Converts man(1) output to an HTML file with auto-update support.
+ *
+ * @param man_string man(1) output as returned by run_man.
+ * @returns An HTML string ready to be written to file.
+ * @see run_man
+ * @see write_to_file
+ */
 std::string to_html(const std::string &man_string);
+
+/**
+ * Creates a tempfile with a .html extension.
+ *
+ * The tempfile is created with mkstemp(3).
+ *
+ * @param tempfile The string buffer to which the path of the newly created
+ * tempfile is written.
+ * @returns The return value of mkstemp(3), which is the file descriptor for
+ * the tempfile or -1 on error.
+ * @see write_to_file
+ */
 int get_tempfile(std::string &tempfile);
+
+/**
+ * Writes string to file.
+ *
+ * The file is overwritten if it already exists.
+ *
+ * @param str The string to write.
+ * @param filepath The path to the file to write to.
+ * @throws PMException
+ *         If any of the opening and writing operations fails.
+ * @see get_tempfile
+ */
 void write_to_file(const std::string &str, const std::string &filepath);
+
+/**
+ * Starts the HTTP server (../libexec/pm/server.py).
+ *
+ * This routine is also responsible for restarting the server on crash, or
+ * killing the server if the shut down signal is received but the server
+ * remains unresponsive for a period of time.
+ *
+ * This routine is blocking, so it should run in a dedicated thread.
+ *
+ * @param progpath Path to the current program, i.e., argv[0] of main.
+ * @param tempfile Path to the tempfile which contains the HTML version of the
+ * man page.
+ * @raises PMException
+ *         If the server cannot be found or fails to start for whatever reason.
+ * @see get_tempfile
+ * @see write_to_file
+ */
 void start_server(const std::string &progpath, const std::string &tempfile);
+
+/**
+ * Retrieves the mtime of a file as returned by stat(2).
+ *
+ * @param filepath Path to the file of interest.
+ * @param mtime Buffer to which the mtime is written on success.
+ * @returns 0 on success, -1 on error (failed stat(2) call).
+ * @see watch_for_changes
+ */
 int get_mtime(const std::string &filepath, timespec &mtime);
+
+/**
+ * Watches for changes on the source file.
+ *
+ * This routine polls for changes on the man page source file, and upon change,
+ * it regenerates the HTML version and issues a SIGUSR1 to the server which
+ * triggers a server-sent event to update client-side content.
+ *
+ * @param manfile Path to the man page source file.
+ * @param tempfile Path to the generated HTML file.
+ * @param initial_mtime Initial mtime of the source file when the HTML file was
+ * first generated.
+ */
 void watch_for_changes(const std::string &manfile, const std::string &tempfile,
                        const timespec &initial_mtime);
+
+/**
+ * The SIGCHLD listener (handler).
+ *
+ * See implementation for details.
+ *
+ * @param sig The signal number.
+ */
 void sigchld_listener(int sig);
+
+/**
+ * The SIGINT and SIGTERM joint listener (handler).
+ *
+ * See implementation for details.
+ *
+ * @param sig The signal number.
+ */
 void sigint_term_listener(int sig);
+
+/**
+ * Comparison operator for timespec.
+ *
+ * The timespec struct is defined in time.h.
+ *
+ * @param lhs Left-hand side.
+ * @param rhs Right-hand side.
+ * @returns True if lhs is strictly earlier than rhs; false otherwise.
+ */
 bool operator <(const timespec& lhs, const timespec& rhs);
 
 int main(int argc, const char *argv[]) {
