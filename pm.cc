@@ -24,6 +24,7 @@ public:
     PMException(std::string const &message): std::runtime_error(message) {}
 };
 
+void print_help();
 void log(const char *msg);
 std::string run_man(const std::string &manfile);
 std::string to_html(const std::string &man_string);
@@ -39,8 +40,9 @@ bool operator <(const timespec& lhs, const timespec& rhs);
 
 int main(int argc, const char *argv[]) {
     try {
-        if (argc == 1) {
-            throw PMException("No man page provided.");
+        if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+            print_help();
+            exit(1);
         } else if (argc > 2) {
             std::cerr << "Warning: Extraneous arguments ignored." << std::endl;
         }
@@ -72,6 +74,19 @@ int main(int argc, const char *argv[]) {
         std::cerr << "Error: " << e.what() << std::endl;
         exit(1);
     }
+}
+
+void print_help() {
+    std::string help_text = R"(Preview man page as you edit.
+
+Usage:
+    pm [options] manfile
+
+Options:
+    -h, --help
+        Print help text and exit.
+)";
+    std::cerr << help_text << std::endl;
 }
 
 void log(const char *msg) {
