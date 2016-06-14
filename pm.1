@@ -1,0 +1,35 @@
+.Dd June 13, 2016
+.Os POSIX
+.Dt PM 1 URM
+.Sh NAME
+.Nm pm
+.Nd preview man page as you edit
+.Sh SYNOPSIS
+.Nm pm
+.Op options
+.Ar manfile
+.Sh DESCRIPTION
+.Nm pm
+generates an HTML version of the supplied man page which emulates the output of
+.Xr man 1
+in a tty, opens it in the user's default web browser, and automatically updates
+the HTML version shown in the browser window (using server-sent events) as the
+man page is updated.
+.Pp
+To stop this utility, simply press ^C to interrupt it.
+.Pp
+The following options are available:
+.Bl -tag -width indent
+.It Fl h , Fl -help
+Print help text and exit.
+.El
+.Sh EXAMPLES
+To preview changes while you edit this very man page, run
+.Pp
+.Dl % pm /path/to/pm.1
+.Sh AUTHORS
+This manual page was written by
+.An Zhiming Wang Aq Mt zmwangx@gmail.com .
+.Sh BUGS
+Please send bug reports to
+.Em https://github.com/zmwangx/pm/issues .
