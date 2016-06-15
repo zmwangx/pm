@@ -451,7 +451,8 @@ void write_to_file(const std::string &str, const std::string &filepath) {
 }
 
 void start_server(const std::string &progpath, const std::string &tempfile) {
-    char *execpath = strdup(progpath.c_str()); // won't be freed
+    char execpath[PATH_MAX + 1];
+    realpath(progpath.c_str(), execpath); // Resolve to absolute path
     std::string server_bin = dirname(execpath);
     server_bin += "/../libexec/pm/server.py";
     const char *const argv[] = {server_bin.c_str(), tempfile.c_str(), NULL};
