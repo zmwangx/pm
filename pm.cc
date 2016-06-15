@@ -16,6 +16,7 @@ std::thread server_controller_thread;
 pid_t server_pid = 0;
 bool server_not_running = true;
 bool shutting_down = false;
+int exit_status = 0;
 std::mutex mtx;
 std::condition_variable_any cv;
 
@@ -42,6 +43,8 @@ void print_help();
  * @param msg The message to be logged.
  */
 void log(const char *msg);
+
+void print_error_and_initiate_shutdown(const char *msg);
 
 /**
  * Calls man(1) on the supplied file and returns the output.
@@ -100,13 +103,15 @@ void write_to_file(const std::string &str, const std::string &filepath);
  * killing the server if the shut down signal is received but the server
  * remains unresponsive for a period of time.
  *
+ * Note that if server.py cannot be found, the child process used to spawn the
+ * server will exit with status 127. This case should be appropriately handled
+ * in the SIGCHLD handler.
+ *
  * This routine is blocking, so it should run in a dedicated thread.
  *
  * @param progpath Path to the current program, i.e., argv[0] of main.
  * @param tempfile Path to the tempfile which contains the HTML version of the
  * man page.
- * @raises PMException
- *         If the server cannot be found or fails to start for whatever reason.
  * @see get_tempfile
  * @see write_to_file
  */
@@ -199,9 +204,9 @@ int main(int argc, const char *argv[]) {
         watch_for_changes(manfile, tempfile, initial_mtime);
         server_controller_thread.join();
     } catch (PMException &e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        exit(1);
+        print_error_and_initiate_shutdown(e.what());
     }
+    exit(exit_status);
 }
 
 void print_help() {
@@ -225,6 +230,15 @@ void log(const char *msg) {
     char timestr[128];
     strftime(timestr, 127, "%d/%b/%Y %H:%M:%S", now);
     std::cerr << "[" << timestr << "] " << msg << std::endl;
+}
+
+void print_error_and_initiate_shutdown(const char *msg) {
+    std::cerr << "Error: " << msg << std::endl;
+    mtx.lock();
+    shutting_down = true;
+    exit_status = 1;
+    cv.notify_all();
+    mtx.unlock();
 }
 
 // TODO: Customizable COLUMNS
@@ -453,22 +467,31 @@ void start_server(const std::string &progpath, const std::string &tempfile) {
             mtx.unlock();
             server_pid = fork();
             if (server_pid == 0) {
-                if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
-                    errno == ENOENT) {
-                    throw PMException("server.py not found.");
-                } else {
-                    throw PMException("Unknown error occurred when calling server.py.");
+                if (execv(argv[0], const_cast<char *const *>(argv)) == -1) {
+                    const char *msg = (errno == ENOENT) ? "server.py not found." :
+                        "Unknown error occurred when calling server.py.";
+                    std::cerr << "Error: " << msg << std::endl;
+
+                    // This is a hack that executes `bin/sh -c "exit 127"' so
+                    // that the subprocess exits with status 127 without
+                    // returning.
+                    //
+                    // The reason exit(127) doesn't work is that we're within a
+                    // thread, so exit leads to the process being terminated
+                    // with SIGABRT.
+                    const char *const argv2[] = {"/bin/sh", "-c", "exit 127", NULL};
+                    execv(argv2[0], const_cast<char *const *>(argv2));
                 }
             }
-        } else if (shutting_down) {
+        }
+        if (shutting_down) {
             mtx.unlock();
             // Wait for the server to gracefully shutdown itself for at most
             // five seconds before force killing
             for (int t = 0; t < 5; ++t) {
                 if (waitpid(server_pid, NULL, WNOHANG) == -1 && errno == ECHILD) {
-                    exit(0);
+                    return;
                 }
-                return;
             }
             log("Server not responding, force shutting down...");
             kill(server_pid, SIGKILL);
@@ -512,7 +535,13 @@ void watch_for_changes(const std::string &manfile, const std::string &tempfile,
 
 void sigchld_listener(int sig) {
     // Reap server process; WNOHANG to ignore when server is merely stopped
-    if (waitpid(server_pid, NULL, WNOHANG) == server_pid) {
+    int status;
+    if (waitpid(server_pid, &status, WNOHANG) == server_pid) {
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+            // Unrecoverable failure due to failed execvp
+            print_error_and_initiate_shutdown("Unrecoverable server failure.");
+            return;
+        }
         log("Server crashed...");
         mtx.lock();
         server_not_running = true;
