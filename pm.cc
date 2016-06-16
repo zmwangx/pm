@@ -475,6 +475,7 @@ void start_server(const std::string &progpath, const std::string &tempfile) {
                 if (waitpid(server_pid, NULL, WNOHANG) == -1 && errno == ECHILD) {
                     return;
                 }
+                sleep(1);
             }
             log("Server not responding, force shutting down...");
             kill(server_pid, SIGKILL);
@@ -556,11 +557,13 @@ void sigchld_listener(int sig) {
             print_error_and_initiate_shutdown("Unrecoverable server failure.");
             return;
         }
-        log("Server crashed...");
-        mtx.lock();
-        server_not_running = true;
-        mtx.unlock();
-        cv.notify_all();
+        if (!shutting_down) {
+            log("Server crashed...");
+            mtx.lock();
+            server_not_running = true;
+            mtx.unlock();
+            cv.notify_all();
+        }
     }
 }
 
