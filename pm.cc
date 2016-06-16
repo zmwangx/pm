@@ -464,6 +464,19 @@ void start_server(const std::string &progpath, const std::string &tempfile) {
         // Infinite loop to restart server if it ever crashes until
         // shutdown signal is received
         cv.wait(mtx, []() { return server_not_running || shutting_down; });
+        if (shutting_down) {
+            mtx.unlock();
+            // Wait for the server to gracefully shutdown itself for at most
+            // five seconds before force killing
+            for (int t = 0; t < 5; ++t) {
+                if (waitpid(server_pid, NULL, WNOHANG) == -1 && errno == ECHILD) {
+                    return;
+                }
+            }
+            log("Server not responding, force shutting down...");
+            kill(server_pid, SIGKILL);
+            return;
+        }
         if (server_not_running) {
             log("Starting server...");
             server_not_running = false;
@@ -487,19 +500,6 @@ void start_server(const std::string &progpath, const std::string &tempfile) {
                     execv(argv2[0], const_cast<char *const *>(argv2));
                 }
             }
-        }
-        if (shutting_down) {
-            mtx.unlock();
-            // Wait for the server to gracefully shutdown itself for at most
-            // five seconds before force killing
-            for (int t = 0; t < 5; ++t) {
-                if (waitpid(server_pid, NULL, WNOHANG) == -1 && errno == ECHILD) {
-                    return;
-                }
-            }
-            log("Server not responding, force shutting down...");
-            kill(server_pid, SIGKILL);
-            return;
         }
     }
 }
