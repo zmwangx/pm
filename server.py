@@ -47,6 +47,26 @@ def extract_manpage_content(path):
     except OSError:
         return ''
 
+def open_url(url):
+    # Redirect stdout and stderr to /dev/null on the OS level so that
+    # the browser process cannot write to the tty.
+    stdoutfd = os.dup(1)
+    stderrfd = os.dup(2)
+    os.close(1)
+    os.close(2)
+    devnullfd = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnullfd, 1)
+    os.dup2(devnullfd, 2)
+    try:
+        webbrowser.open(url)
+    except webbrowser.Error:
+        logger.error('Error: Failed to open %s in your browser.', url)
+        os.kill(os.getpid(), signal.SIGTERM)
+    finally:
+        os.close(devnullfd)
+        os.dup2(stdoutfd, 1)
+        os.dup2(stderrfd, 2)
+
 class PMHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
     file_path = None
@@ -143,11 +163,7 @@ def main():
     httpd_thread = threading.Thread(target=httpd.serve_forever)
     httpd_thread.start()
 
-    try:
-        webbrowser.open(url)
-    except webbrowser.Error:
-        logger.error('Error: Failed to open %s in your browser.', url)
-        os.kill(os.getpid(), signal.SIGTERM)
+    open_url(url)
 
 if __name__ == '__main__':
     main()
