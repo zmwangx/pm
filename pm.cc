@@ -15,6 +15,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "config.h"
+
 std::thread server_controller_thread;
 pid_t server_pid = 0;
 bool server_not_running = true;
@@ -510,7 +512,14 @@ int get_mtime(const std::string &filepath, timespec &mtime) {
     if (stat(path, &st) == -1) {
         return -1;
     }
+#ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
     mtime = st.st_mtimespec;
+#elif HAVE_STRUCT_STAT_ST_MTIM
+    mtime = st.st_mtim;
+#else
+    mtime.tv_sec = st.st_mtime;
+    mtime.tv_nsec = 0;
+#endif
     return 0;
 }
 

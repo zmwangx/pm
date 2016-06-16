@@ -1,3 +1,7 @@
+autom4te.cache/
 bin/
 libexec/
+config.h
+config.log
+configure
 pm.o

@@ -35,4 +35,6 @@ clean:
 	@- $(RM) pm.o bin/pm libexec/pm/server.py
 
 distclean: clean
+	@- $(RM) -r autom4te.cache
+	@- $(RM) config.h config.log
 	@- rmdir -p bin libexec/pm
