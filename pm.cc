@@ -2,12 +2,15 @@
 #include <fcntl.h>
 #include <iostream>
 #include <libgen.h>
+#include <limits.h>
 #include <mutex>
 #include <signal.h>
 #include <stdexcept>
 #include <stdlib.h>
 #include <string>
+#include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <thread>
 #include <time.h>
 #include <unistd.h>
