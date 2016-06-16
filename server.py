@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
-import atexit
 import http.server
 import json
 import logging
 import os
 import shutil
 import signal
-import socket
 import socketserver
 import threading
 import webbrowser
@@ -32,13 +30,6 @@ should_wakeup = threading.Event()
 should_update = threading.Event()
 server_shutting_down = threading.Event()
 events_lock = threading.RLock()
-
-def snatch_free_port():
-    s = socket.socket()
-    atexit.register(s.close)
-    s.bind(("", 0))
-    _, port = s.getsockname()
-    return port
 
 def extract_manpage_content(path):
     try:
@@ -124,8 +115,8 @@ def main():
     parser.add_argument('file', help='the file to be served and kept updated')
     args = parser.parse_args()
 
-    port = snatch_free_port()
-    httpd = PMHTTPServer(('localhost', port), args.file)
+    httpd = PMHTTPServer(('localhost', 0), args.file)
+    port = httpd.server_port
     url = 'http://localhost:%d' % port
 
     def shutdown_server(signum, stackframe):
