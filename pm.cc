@@ -272,95 +272,37 @@ std::string run_man(const std::string &manfile) {
 
     setenv("COLUMNS", "120", 1);
 
-#ifdef __linux__
-    // Linux implementation, based on pseudotty
+    int readfd; // The fd to read man(1) output from, which is the master of
+                // the pty in the Linux implementation, and the reading end of
+                // the pipe in the BSD/generic implementation
 
+#ifdef __linux__
+    // Linux implementation based on pseudotty
     int master;
     int slave;
     if (openpty(&master, &slave, NULL, NULL, NULL) == -1) {
         throw PMException("Failed to open pseudotty for man(1).");
     }
-
+    readfd = master;
+    // Temporarily redirect stdout to the slave
     int _stdout = dup(STDOUT_FILENO);
     dup2(slave, STDOUT_FILENO);
-
-    pid_t pid = fork();
-    if (pid == 0) {
-        const char *argv[] = {"man", "-P", "/bin/cat", path.c_str(), NULL};
-        if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
-            errno == ENOENT) {
-            throw PMException("man(1) not found.");
-        } else {
-            throw PMException("Unknown error occurred when calling man(1).");
-        }
-    }
-
-    int status;
-    fd_set rfds;
-    struct timeval tv{0, 0};
-    char buf[4097];
-    std::string str;
-    ssize_t size;
-
-    while (1) {
-        // Read from master as we wait, so that the child process doesn't
-        // saturate the pty's buffer and consequently hang.
-        if (waitpid(pid, &status, WNOHANG) == pid) {
-            // Child process finished
-            if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
-                throw PMException("Call to man(1) failed.");
-            }
-            break;
-        }
-
-        // Read if there's anything to read
-        FD_ZERO(&rfds);
-        FD_SET(master, &rfds);
-        if (select(master + 1, &rfds, NULL, NULL, &tv)) {
-            size = read(master, buf, 4096);
-            if (size == -1) {
-                throw PMException("Failed to read from pty.");
-            }
-            buf[size] = '\0';
-            str += buf;
-        }
-    }
-
-    fsync(STDOUT_FILENO);
-    dup2(_stdout, STDOUT_FILENO);
-
-    // Read from master until there's no more to read, then close both ends of
-    // the pty.
-    while (1) {
-        FD_ZERO(&rfds);
-        FD_SET(master, &rfds);
-        if (!select(master + 1, &rfds, NULL, NULL, &tv)) {
-            // No more data to read
-            break;
-        }
-        size = read(master, buf, 4096);
-        if (size == 0) {
-            break;
-        } else if (size == -1) {
-            throw PMException("Failed to read from pty.");
-        }
-        buf[size] = '\0';
-        str += buf;
-    }
-    close(master);
-    close(slave);
-    return str;
 #else
-    // Regular implementation (macOS/BSD)
-
+    // BSD/generic implementation based on pipe
     int fds[2];
     pipe(fds);
-    pid_t pid = fork();
+    readfd = fds[0];
+#endif
 
+    pid_t pid = fork();
     if (pid == 0) {
+#ifndef __linux__
+        // Set up pipe for BSD/generic
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
+#endif
+
         const char *argv[] = {"man", "-P", "/bin/cat", path.c_str(), NULL};
         if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
             errno == ENOENT) {
@@ -370,7 +312,9 @@ std::string run_man(const std::string &manfile) {
         }
     }
 
+#ifndef __linux__
     close(fds[1]);
+#endif
 
     int status;
     fd_set rfds;
@@ -380,8 +324,8 @@ std::string run_man(const std::string &manfile) {
     ssize_t size;
 
     while (1) {
-        // Read as we wait so that the buffer won't be saturated and block the
-        // call
+        // Read as we wait, so that the child process doesn't hang due to
+        // saturating the pty or pipe's buffer.
         if (waitpid(pid, &status, WNOHANG) == pid) {
             // Child process finished
             if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
@@ -392,26 +336,56 @@ std::string run_man(const std::string &manfile) {
 
         // Read if there's anything to read
         FD_ZERO(&rfds);
-        FD_SET(fds[0], &rfds);
-        if (select(fds[0] + 1, &rfds, NULL, NULL, &tv)) {
-            size = read(fds[0], buf, 4096);
+        FD_SET(readfd, &rfds);
+        if (select(readfd + 1, &rfds, NULL, NULL, &tv)) {
+            size = read(readfd, buf, 4096);
             if (size == -1) {
+#ifdef __linux__
+                throw PMException("Failed to read from pty.");
+#else
                 throw PMException("Failed to read from pipe.");
+#endif
             }
             buf[size] = '\0';
             str += buf;
         }
     }
 
-    while ((size = read(fds[0], buf, 4096)) != 0) {
-        if (size == -1) {
+#ifdef __linux__
+    // Flush and restore stdout
+    fsync(STDOUT_FILENO);
+    dup2(_stdout, STDOUT_FILENO);
+#endif
+
+    // Read until there's no more to read, then if Linux, close both ends of
+    // the pty.
+    while (1) {
+        FD_ZERO(&rfds);
+        FD_SET(readfd, &rfds);
+        if (!select(readfd + 1, &rfds, NULL, NULL, &tv)) {
+            // No more data to read
+            break;
+        }
+        size = read(readfd, buf, 4096);
+        if (size == 0) {
+            break;
+        } else if (size == -1) {
+#ifdef __linux__
+            throw PMException("Failed to read from pty.");
+#else
             throw PMException("Failed to read from pipe.");
+#endif
         }
         buf[size] = '\0';
         str += buf;
     }
-    return str;
+
+#ifdef __linux__
+    close(master);
+    close(slave);
 #endif
+
+    return str;
 }
 
 std::string to_html(const std::string &man_string) {
