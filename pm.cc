@@ -15,6 +15,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef __linux__
+#include <pty.h>
+#endif
+
 #include "config.h"
 
 std::thread server_controller_thread;
@@ -59,6 +63,23 @@ void log(const char *msg);
  * NULL. Default is NULL.
  */
 void print_error_and_initiate_shutdown(const char *msg);
+
+/**
+ * Replaces all occurrences of a substring in a string.
+ *
+ * @param str The string to be replaced (in place).
+ * @param from The substring that we want to replace.
+ * @param to The replacement string, replacing from.
+ */
+void replace_all(std::string& str, const std::string& from, const std::string& to);
+
+/**
+ * Quotes a string for usage as a shell argument.
+ *
+ * @param arg The unquoted argument string.
+ * @returns The quoted argument string.
+ */
+std::string quote_arg_for_shell(const std::string& arg);
 
 /**
  * Calls man(1) on the supplied file and returns the output.
@@ -257,15 +278,79 @@ void print_error_and_initiate_shutdown(const char *msg=NULL) {
     mtx.unlock();
 }
 
+void replace_all(std::string& str, const std::string& from, const std::string& to) {
+    size_t start_pos = 0;
+    while((start_pos = str.find(from, start_pos)) != std::string::npos) {
+        str.replace(start_pos, from.length(), to);
+        start_pos += to.length();
+    }
+}
+
+std::string quote_arg_for_shell(const std::string& arg) {
+    std::string quoted(arg);
+    replace_all(quoted, "'", "'\\''");
+    return "'" + quoted + "'";
+}
+
 // TODO: Customizable COLUMNS
 std::string run_man(const std::string &manfile) {
-    char *path; // path won't be freed; it's okay
-    if ((path = realpath(manfile.c_str(), NULL)) == NULL) {
+    char *pathstr;
+    if ((pathstr = realpath(manfile.c_str(), NULL)) == NULL) {
         throw PMException("Cannot resolve " + manfile + ".");
     }
+    std::string path(pathstr);
+    free(pathstr);
 
-    setenv("PAGER", "cat", 1);
     setenv("COLUMNS", "120", 1);
+
+#ifdef __linux__
+    // Linux implementation, based on pseudotty
+
+    int master;
+    int slave;
+    if (openpty(&master, &slave, NULL, NULL, NULL) == -1) {
+        throw PMException("Failed to open pseudotty for man(1).");
+    }
+
+    std::string command = "man -P /bin/cat ";
+    command += quote_arg_for_shell(path);
+
+    int _stdout = dup(STDOUT_FILENO);
+    dup2(slave, STDOUT_FILENO);
+    if (system(command.c_str()) != 0) {
+        throw PMException("Call to man(1) failed.");
+    }
+    fsync(STDOUT_FILENO);
+    dup2(_stdout, STDOUT_FILENO);
+
+    char buf[4097];
+    std::string str;
+    ssize_t size;
+    // Read from master until there's no more to read, then close both ends of
+    // the pty.
+    while (1) {
+        fd_set rfds;
+        struct timeval tv{0, 0};
+        FD_ZERO(&rfds);
+        FD_SET(master, &rfds);
+        if (!select(master + 1, &rfds, NULL, NULL, &tv)) {
+            // No more data to read
+            break;
+        }
+        size = read(master, buf, 4096);
+        if (size == 0) {
+            break;
+        } else if (size == -1) {
+            throw PMException("Failed to read from pty.");
+        }
+        buf[size] = '\0';
+        str += buf;
+    }
+    close(master);
+    close(slave);
+    return str;
+#else
+    // Regular implementation (macOS/BSD)
 
     int fds[2];
     pipe(fds);
@@ -275,7 +360,7 @@ std::string run_man(const std::string &manfile) {
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
-        const char *argv[3] = {"man", path, NULL};
+        const char *argv[] = {"man", "-P", "/bin/cat", path.c_str(), NULL};
         if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
             errno == ENOENT) {
             throw PMException("man(1) not found.");
@@ -303,6 +388,7 @@ std::string run_man(const std::string &manfile) {
         str += buf;
     }
     return str;
+#endif
 }
 
 std::string to_html(const std::string &man_string) {

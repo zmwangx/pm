@@ -6,7 +6,14 @@ datarootdir = $(prefix)/share
 mandir = $(datarootdir)/man
 man1dir = $(mandir)/man1
 docdir = $(datarootdir)/doc/pm
-CXXFLAGS += -O3 -std=c++0x -Wno-unused-result
+
+CXXFLAGS += -O3 -std=c++0x
+
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+    CXXFLAGS += -Wno-unused-result
+    LDLIBS += -lpthread -lutil
+endif
 
 .PHONY: all clean distclean install uninstall
 
@@ -14,7 +21,7 @@ all: bin/pm libexec/pm/server.py
 
 bin/pm: pm.o
 	mkdir -p bin
-	$(LINK.cc) $^ -lpthread -o $@
+	$(LINK.cc) $^ $(LDLIBS) -o $@
 
 libexec/pm/server.py: server.py
 	mkdir -p libexec/pm
