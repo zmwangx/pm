@@ -65,23 +65,6 @@ void log(const char *msg);
 void print_error_and_initiate_shutdown(const char *msg);
 
 /**
- * Replaces all occurrences of a substring in a string.
- *
- * @param str The string to be replaced (in place).
- * @param from The substring that we want to replace.
- * @param to The replacement string, replacing from.
- */
-void replace_all(std::string& str, const std::string& from, const std::string& to);
-
-/**
- * Quotes a string for usage as a shell argument.
- *
- * @param arg The unquoted argument string.
- * @returns The quoted argument string.
- */
-std::string quote_arg_for_shell(const std::string& arg);
-
-/**
  * Calls man(1) on the supplied file and returns the output.
  *
  * man(1) is run with PAGER set to cat(1) and COLUMNS set to 120. Only stdout
@@ -278,20 +261,6 @@ void print_error_and_initiate_shutdown(const char *msg=NULL) {
     mtx.unlock();
 }
 
-void replace_all(std::string& str, const std::string& from, const std::string& to) {
-    size_t start_pos = 0;
-    while((start_pos = str.find(from, start_pos)) != std::string::npos) {
-        str.replace(start_pos, from.length(), to);
-        start_pos += to.length();
-    }
-}
-
-std::string quote_arg_for_shell(const std::string& arg) {
-    std::string quoted(arg);
-    replace_all(quoted, "'", "'\\''");
-    return "'" + quoted + "'";
-}
-
 // TODO: Customizable COLUMNS
 std::string run_man(const std::string &manfile) {
     char *pathstr;
@@ -312,14 +281,25 @@ std::string run_man(const std::string &manfile) {
         throw PMException("Failed to open pseudotty for man(1).");
     }
 
-    std::string command = "man -P /bin/cat ";
-    command += quote_arg_for_shell(path);
-
     int _stdout = dup(STDOUT_FILENO);
     dup2(slave, STDOUT_FILENO);
-    if (system(command.c_str()) != 0) {
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        const char *argv[] = {"man", "-P", "/bin/cat", path.c_str(), NULL};
+        if (execvp(argv[0], const_cast<char *const *>(argv)) == -1 &&
+            errno == ENOENT) {
+            throw PMException("man(1) not found.");
+        } else {
+            throw PMException("Unknown error occurred when calling man(1).");
+        }
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
         throw PMException("Call to man(1) failed.");
     }
+
     fsync(STDOUT_FILENO);
     dup2(_stdout, STDOUT_FILENO);
 
