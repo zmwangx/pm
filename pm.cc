@@ -49,6 +49,15 @@ void print_help();
  */
 void log(const char *msg);
 
+/**
+ * Prints error message and initiates shutdown sequence.
+ *
+ * shutting_down is set to true, exit_status is set to 1, and all watchers of
+ * cv are notified.
+ *
+ * @param (Optional) The error message to be printed; suppressed if
+ * NULL. Default is NULL.
+ */
 void print_error_and_initiate_shutdown(const char *msg);
 
 /**
@@ -237,8 +246,10 @@ void log(const char *msg) {
     std::cerr << "[" << timestr << "] " << msg << std::endl;
 }
 
-void print_error_and_initiate_shutdown(const char *msg) {
-    std::cerr << "Error: " << msg << std::endl;
+void print_error_and_initiate_shutdown(const char *msg=NULL) {
+    if (msg) {
+        std::cerr << "Error: " << msg << std::endl;
+    }
     mtx.lock();
     shutting_down = true;
     exit_status = 1;
