@@ -294,23 +294,44 @@ std::string run_man(const std::string &manfile) {
             throw PMException("Unknown error occurred when calling man(1).");
         }
     }
+
     int status;
-    waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
-        throw PMException("Call to man(1) failed.");
+    fd_set rfds;
+    struct timeval tv{0, 0};
+    char buf[4097];
+    std::string str;
+    ssize_t size;
+
+    while (1) {
+        // Read from master as we wait, so that the child process doesn't
+        // saturate the pty's buffer and consequently hang.
+        if (waitpid(pid, &status, WNOHANG) == pid) {
+            // Child process finished
+            if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
+                throw PMException("Call to man(1) failed.");
+            }
+            break;
+        }
+
+        // Read if there's anything to read
+        FD_ZERO(&rfds);
+        FD_SET(master, &rfds);
+        if (select(master + 1, &rfds, NULL, NULL, &tv)) {
+            size = read(master, buf, 4096);
+            if (size == -1) {
+                throw PMException("Failed to read from pty.");
+            }
+            buf[size] = '\0';
+            str += buf;
+        }
     }
 
     fsync(STDOUT_FILENO);
     dup2(_stdout, STDOUT_FILENO);
 
-    char buf[4097];
-    std::string str;
-    ssize_t size;
     // Read from master until there's no more to read, then close both ends of
     // the pty.
     while (1) {
-        fd_set rfds;
-        struct timeval tv{0, 0};
         FD_ZERO(&rfds);
         FD_SET(master, &rfds);
         if (!select(master + 1, &rfds, NULL, NULL, &tv)) {
