@@ -373,14 +373,36 @@ std::string run_man(const std::string &manfile) {
     close(fds[1]);
 
     int status;
-    waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
-        throw PMException("Call to man(1) failed.");
-    }
-
+    fd_set rfds;
+    struct timeval tv{0, 0};
     char buf[4097];
     std::string str;
     ssize_t size;
+
+    while (1) {
+        // Read as we wait so that the buffer won't be saturated and block the
+        // call
+        if (waitpid(pid, &status, WNOHANG) == pid) {
+            // Child process finished
+            if (!WIFEXITED(status) || !(WEXITSTATUS(status) == 0)) {
+                throw PMException("Call to man(1) failed.");
+            }
+            break;
+        }
+
+        // Read if there's anything to read
+        FD_ZERO(&rfds);
+        FD_SET(fds[0], &rfds);
+        if (select(fds[0] + 1, &rfds, NULL, NULL, &tv)) {
+            size = read(fds[0], buf, 4096);
+            if (size == -1) {
+                throw PMException("Failed to read from pipe.");
+            }
+            buf[size] = '\0';
+            str += buf;
+        }
+    }
+
     while ((size = read(fds[0], buf, 4096)) != 0) {
         if (size == -1) {
             throw PMException("Failed to read from pipe.");
