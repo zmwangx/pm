@@ -1,10 +1,12 @@
 #include <condition_variable>
 #include <fcntl.h>
+#include <iomanip>
 #include <iostream>
 #include <libgen.h>
 #include <limits.h>
 #include <mutex>
 #include <signal.h>
+#include <sstream>
 #include <stdexcept>
 #include <stdlib.h>
 #include <string>
@@ -96,11 +98,13 @@ std::string run_man(const std::string &manfile);
  * Converts man(1) output to an HTML file with auto-update support.
  *
  * @param man_string man(1) output as returned by run_man.
+ * @param filepath Path to the man page source file, used for determining the
+ * title of the HTML file.
  * @returns An HTML string ready to be written to file.
  * @see run_man
  * @see write_to_file
  */
-std::string to_html(const std::string &man_string);
+std::string to_html(const std::string &man_string, const std::string &filepath);
 
 /**
  * Creates a tempfile with a .html extension.
@@ -227,7 +231,7 @@ int main(int argc, const char *argv[]) {
             throw PMException("Failed to create temp file.");
         }
         close(fd);
-        write_to_file(to_html(run_man(manfile)), tempfile);
+        write_to_file(to_html(run_man(manfile), manfile), tempfile);
 
         signal(SIGCHLD, sigchld_listener);
         signal(SIGINT, sigint_term_listener);
@@ -438,7 +442,23 @@ std::string run_man(const std::string &manfile) {
     return str;
 }
 
-std::string to_html(const std::string &man_string) {
+std::string to_html(const std::string &man_string, const std::string &filepath) {
+    char *filepathstr = strdup(filepath.c_str());
+    std::string filename = basename(filepathstr);
+    free(filepathstr);
+
+    // Encode each character in the filename as entity code for the title
+    std::ostringstream oss;
+    for (auto c: filename) {
+        oss << "&#x"
+            << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << (int) c
+            << ';';
+    }
+    std::string title = oss.str();
+    if (title.empty()) {
+        title = "Man page";
+    }
+
     std::string ms = man_string;
     const size_t n = ms.length();
     ms += "\0\0"; // Append two NULs to the string so that we won't need to
@@ -449,7 +469,9 @@ std::string to_html(const std::string &man_string) {
 <html>
 <head>
 <meta charset="UTF-8">
-<title>man page</title>
+<title>)";
+    hs += title;
+    hs += R"(</title>
 <style type="text/css">
     body {
         text-align: center;
@@ -680,7 +702,7 @@ void watch_for_changes(const std::string &manfile, const std::string &tempfile,
         }
         if (last_mtime < mtime) {
             log("Change detected.");
-            write_to_file(to_html(run_man(manfile)), tempfile);
+            write_to_file(to_html(run_man(manfile), manfile), tempfile);
             kill(server_pid, SIGUSR1);
             last_mtime = mtime;
         }
