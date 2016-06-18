@@ -26,6 +26,7 @@ was partially inspired by [joeyespo/grip](https://github.com/joeyespo/grip) and
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Screenshot](#screenshot)
 - [See Also](#see-also)
 - [License](#license)
 
@@ -89,6 +90,10 @@ $ pm /path/to/man/page
 ```
 
 Press `^C` when you are done.
+
+## Screenshot
+
+![Screenshot of `pm(1)`.](https://i.imgur.com/emPAatA.png)
 
 ## See Also
 
