@@ -22,6 +22,9 @@
 #include "config.h"
 #include "config-paths.h"
 
+const timespec TENTH_SECOND{0, 100000000};
+const timespec HALF_SECOND{0, 500000000};
+
 std::thread server_controller_thread;
 pid_t server_pid = 0;
 bool server_not_running = true;
@@ -608,11 +611,11 @@ void start_server(const std::string &server_path, const std::string &tempfile) {
             mtx.unlock();
             // Wait for the server to gracefully shutdown itself for at most
             // five seconds before force killing
-            for (int t = 0; t < 5; ++t) {
+            for (int t = 0; t < 50; ++t) {
                 if (waitpid(server_pid, NULL, WNOHANG) == -1 && errno == ECHILD) {
                     return;
                 }
-                sleep(1);
+                nanosleep(&TENTH_SECOND, NULL);
             }
             log("Server not responding, force shutting down...");
             kill(server_pid, SIGKILL);
@@ -681,7 +684,7 @@ void watch_for_changes(const std::string &manfile, const std::string &tempfile,
             kill(server_pid, SIGUSR1);
             last_mtime = mtime;
         }
-        sleep(1);
+        nanosleep(&HALF_SECOND, NULL);
     }
 }
 
