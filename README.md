@@ -40,7 +40,7 @@ was partially inspired by [joeyespo/grip](https://github.com/joeyespo/grip) and
 | Linux | ✓ — Primary target |
 | Other flavors of BSD | Probably ✓ — Secondary target |
 | Other POSIX / UNIX | Possibly ✓ — No guarantee |
-| Windows NT | Hmm, what is man? |
+| Windows NT | ✗ — Hmm, what is man? |
 
 ## Prerequisites
 
