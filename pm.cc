@@ -1,6 +1,5 @@
 #include <condition_variable>
 #include <fcntl.h>
-#include <iomanip>
 #include <iostream>
 #include <libgen.h>
 #include <limits.h>
@@ -450,9 +449,7 @@ std::string to_html(const std::string &man_string, const std::string &filepath) 
     // Encode each character in the filename as entity code for the title
     std::ostringstream oss;
     for (auto c: filename) {
-        oss << "&#x"
-            << std::setw(2) << std::setfill('0') << std::hex << std::uppercase << (int) c
-            << ';';
+        oss << "&#" << (int) c << ';';
     }
     std::string title = oss.str();
     if (title.empty()) {
