@@ -1,7 +1,14 @@
 autom4te.cache/
 bin/
 libexec/
+Makefile
+Makefile.in
+aclocal.m4
+compile
 config.h
 config.log
+config.status
 configure
+install-sh
+missing
 pm.o
