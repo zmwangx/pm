@@ -4,7 +4,7 @@ man1_MANS = pm.1
 doc_DATA = COPYING README.md
 
 CLEANFILES = pm.o bin/pm libexec/pm/server.py
-DISTCLEANFILES = aclocal.m4 config.h
+DISTCLEANFILES = aclocal.m4 config.h config-paths.h
 
 CXXFLAGS = -O3 -std=c++0x
 LDLIBS =
@@ -16,8 +16,8 @@ endif
 
 all: bin/pm libexec/pm/server.py
 
-pm.o: pm.cc
-	$(COMPILE.cc) $^ -o $@
+pm.o: pm.cc config-paths.h
+	$(COMPILE.cc) $< -o $@
 
 bin/pm: pm.o
 	mkdir -p bin
@@ -26,6 +26,9 @@ bin/pm: pm.o
 libexec/pm/server.py: server.py
 	mkdir -p libexec/pm
 	cp $^ $@
+
+config-paths.h:
+	echo '#define BINDIR "$(bindir)"' >$@
 
 install-exec-local:
 	mkdir -p $(DESTDIR)$(bindir) $(DESTDIR)$(pkglibexecdir)

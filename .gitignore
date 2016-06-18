@@ -9,6 +9,7 @@ config.h
 config.log
 config.status
 configure
+config-paths.h
 install-sh
 missing
 pm.o

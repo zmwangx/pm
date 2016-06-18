@@ -20,6 +20,7 @@
 #endif
 
 #include "config.h"
+#include "config-paths.h"
 
 std::thread server_controller_thread;
 pid_t server_pid = 0;
@@ -52,6 +53,16 @@ void print_help();
  * @param msg The message to be logged.
  */
 void log(const char *msg);
+
+/**
+ * Calculates the path to server.py (../libexec/pm/server.py).
+ *
+ * This routine does not check the existence of the calculated path.
+ *
+ * @param argv0 argv[0].
+ * @returns The path to server.py.
+ */
+std::string get_server_path(const char *argv0);
 
 /**
  * Prints error message and initiates shutdown sequence.
@@ -115,7 +126,7 @@ int get_tempfile(std::string &tempfile);
 void write_to_file(const std::string &str, const std::string &filepath);
 
 /**
- * Starts the HTTP server (../libexec/pm/server.py).
+ * Starts the HTTP server.
  *
  * This routine is also responsible for restarting the server on crash, or
  * killing the server if the shut down signal is received but the server
@@ -127,13 +138,14 @@ void write_to_file(const std::string &str, const std::string &filepath);
  *
  * This routine is blocking, so it should run in a dedicated thread.
  *
- * @param progpath Path to the current program, i.e., argv[0] of main.
+ * @param progpath Path to server.py.
  * @param tempfile Path to the tempfile which contains the HTML version of the
  * man page.
+ * @see get_server_path
  * @see get_tempfile
  * @see write_to_file
  */
-void start_server(const std::string &progpath, const std::string &tempfile);
+void start_server(const std::string &server_path, const std::string &tempfile);
 
 /**
  * Retrieves the mtime of a file as returned by stat(2).
@@ -218,7 +230,8 @@ int main(int argc, const char *argv[]) {
         signal(SIGINT, sigint_term_listener);
         signal(SIGTERM, sigint_term_listener);
 
-        server_controller_thread = std::thread(start_server, argv[0], tempfile);
+        std::string server_path = get_server_path(argv[0]);
+        server_controller_thread = std::thread(start_server, server_path, tempfile);
         watch_for_changes(manfile, tempfile, initial_mtime);
         server_controller_thread.join();
     } catch (PMException &e) {
@@ -248,6 +261,40 @@ void log(const char *msg) {
     char timestr[128];
     strftime(timestr, 127, "%d/%b/%Y %H:%M:%S", now);
     std::cerr << "[" << timestr << "] " << msg << std::endl;
+}
+
+std::string get_server_path(const char *argv0) {
+    std::string pm_executable_path;
+
+    if (strchr(argv0, '/') != NULL) {
+        // argv0 is a path
+        pm_executable_path = argv0;
+    } else {
+        // Infer from $PATH
+        char *paths = strdup(getenv("PATH")); // Duplicate the string so that
+                                              // we do not modify it in place
+        char *path = strtok(paths, ":");
+        while (path != NULL) {
+            std::string potential_pm_path = path;
+            potential_pm_path += "/pm";
+            if (access(potential_pm_path.c_str(), X_OK) == 0) {
+                pm_executable_path = potential_pm_path;
+            }
+            path = strtok(NULL, ":");
+        }
+    }
+
+    if (pm_executable_path.empty()) {
+        // Previous methods failed, use hard-coded path instead
+        pm_executable_path = BINDIR;
+        pm_executable_path += "/pm";
+    }
+
+    char pm_executable_realpath[PATH_MAX + 1];
+    realpath(pm_executable_path.c_str(), pm_executable_realpath); // Resolve to absolute path
+    std::string server_executable_path = dirname(pm_executable_realpath);
+    server_executable_path += "/../libexec/pm/server.py";
+    return server_executable_path;
 }
 
 void print_error_and_initiate_shutdown(const char *msg=NULL) {
@@ -550,12 +597,8 @@ void write_to_file(const std::string &str, const std::string &filepath) {
     close(fd);
 }
 
-void start_server(const std::string &progpath, const std::string &tempfile) {
-    char execpath[PATH_MAX + 1];
-    realpath(progpath.c_str(), execpath); // Resolve to absolute path
-    std::string server_bin = dirname(execpath);
-    server_bin += "/../libexec/pm/server.py";
-    const char *const argv[] = {server_bin.c_str(), tempfile.c_str(), NULL};
+void start_server(const std::string &server_path, const std::string &tempfile) {
+    const char *const argv[] = {server_path.c_str(), tempfile.c_str(), NULL};
 
     while (1) {
         // Infinite loop to restart server if it ever crashes until
