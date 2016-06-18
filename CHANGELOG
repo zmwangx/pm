@@ -1,0 +1,14 @@
+v0.1.1
+
+June 18, 2016
+
+- Set HTML page title to the name of the file being previewed (previously just
+  "man page").
+
+-------------------------------------------------------------------------------
+
+v0.1
+
+June 18, 2016
+
+- Initial release.
