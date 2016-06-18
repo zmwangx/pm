@@ -47,12 +47,11 @@ was partially inspired by [joeyespo/grip](https://github.com/joeyespo/grip) and
 - A C++11 compiler;
 - Python 3.3 or later;
 - A modern web browser with support for server-sent events
-  ([no Microsoft for you!](http://caniuse.com/#feat=eventsource)).
+  ([no Microsoft for you!](http://caniuse.com/#feat=eventsource));
+- Relative recent `autoconf` and `automake`.
 
 Optional:
 
-- `autoconf` — only necessary when building from a git working tree, where the
-  `configure` script needs to be generated from `configure.ac`;
 - [`py-setproctitle`](https://github.com/dvarrazzo/py-setproctitle) — used to
   set the server process title to `pmserver`, useful for monitoring server
   status (otherwise, the process will have a generic title `python`).
@@ -60,7 +59,7 @@ Optional:
 ## Installation
 
 ```bash
-$ autoreconf -i # Not necessary when building from a release tarball
+$ autoreconf -i
 $ ./configure
 $ make
 $ make install
