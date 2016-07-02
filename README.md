@@ -20,11 +20,12 @@ was partially inspired by [joeyespo/grip](https://github.com/joeyespo/grip) and
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
-## Table of Contents
 
 - [Supported Operating Systems](#supported-operating-systems)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+  - [Using a package manager](#using-a-package-manager)
+    - [Homebrew](#homebrew)
 - [Usage](#usage)
 - [Screenshot](#screenshot)
 - [See Also](#see-also)
@@ -81,6 +82,14 @@ the relative location of `server.py` with respect to `pm`, so one should NOT
 mess with paths other than setting a custom `prefix`.
 
 To uninstall, simply replace the `install` target with `uninstall`.
+
+### Using a package manager
+
+#### Homebrew
+
+```
+$ brew install zmwangx/tap/pm
+```
 
 ## Usage
 
