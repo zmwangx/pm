@@ -15,7 +15,7 @@ AC_CHECK_MEMBER([struct stat.st_mtim], [AC_DEFINE(HAVE_STRUCT_STAT_ST_MTIM)], []
 # Get and set PM_VERSION
 AC_MSG_CHECKING([pm version])
 pm_version="$(git describe --abbrev=7 2>/dev/null)"
-test -z "$pm_version" && pm_version=0.1.2
+test -z "$pm_version" && pm_version=0.2
 AC_MSG_RESULT([$pm_version])
 AC_DEFINE_UNQUOTED([PM_VERSION], ["$pm_version"])
 
