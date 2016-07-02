@@ -34,6 +34,9 @@ int exit_status = 0;
 std::mutex mtx;
 std::condition_variable_any cv;
 
+// Options
+int columns = 120;
+
 class PMException: public std::runtime_error {
 public:
     PMException(std::string const &message): std::runtime_error(message) {}
@@ -207,20 +210,63 @@ void sigint_term_listener(int sig);
  */
 bool operator <(const timespec& lhs, const timespec& rhs);
 
+/**
+ * Converts string to integer.
+ *
+ * Although the return type is int, only unsigned integers are supported.
+ *
+ * This function does not check for overflow, so use it with sane values.
+ *
+ * @param s A string supposedly containing an unsigned integer.
+ * @returns The converted integer on success, and -1 otherwise.
+ */
+int string2unsigned(const std::string &s);
+
 int main(int argc, const char *argv[]) {
+    // Parse arguments
+    std::string manfile;
     try {
-        if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-            print_help();
-            exit(1);
-        } else if (argc > 2) {
+        int optind = 1; // option index
+        while (optind < argc) {
+            std::string opt = argv[optind];
+            if (opt == "-h" || opt == "--help") {
+                print_help();
+                exit(1);
+            } else if (opt == "-V" || opt == "--version") {
+                std::cerr << "pm " << PM_VERSION << std::endl;
+                exit(1);
+            } else if (opt == "-w" || opt == "--width" || opt == "--columns") {
+                ++optind;
+                std::string arg = argv[optind];
+                columns = string2unsigned(arg);
+                if (columns == -1) {
+                    throw PMException("Invalid width " + arg + ".");
+                }
+            } else if (opt == "--") {
+                break;
+            } else if (opt.compare(0, 1, "-") == 0) {
+                throw PMException("Unknown option " + opt + ".");
+            } else {
+                break;
+            }
+            ++optind;
+        }
+        if (optind >= argc) {
+            throw PMException("Missing man page source file.");
+        } else if (optind + 1 < argc) {
             std::cerr << "Warning: Extraneous arguments ignored." << std::endl;
         }
+        manfile = argv[optind];
+    } catch (PMException &e) {
+        std::cerr << "Error: " << e.what() << std::endl << std::endl;
+        print_help();
+        exit(1);
+    }
+    // Done parsing arguments
 
-        std::string manfile = argv[1];
+    try {
         timespec initial_mtime;
-        if (get_mtime(argv[1], initial_mtime) == -1) {
-            // std::ostringstream msg;
-            // msg << "Failed to stat " << argv[1] << ".";
+        if (get_mtime(manfile.c_str(), initial_mtime) == -1) {
             throw PMException("Failed to stat " + manfile + ".");
         }
 
@@ -255,6 +301,11 @@ Usage:
 Options:
     -h, --help
         Print help text and exit.
+    -V, --version
+        Print version info and exit.
+    -w, --width, --columns=WIDTH
+        Width of output, i.e., the COLUMNS environment variable passed to
+        man(1).
 )";
     std::cerr << help_text << std::endl;
 }
@@ -314,7 +365,6 @@ void print_error_and_initiate_shutdown(const char *msg=NULL) {
     mtx.unlock();
 }
 
-// TODO: Customizable COLUMNS
 std::string run_man(const std::string &manfile) {
     char *pathstr;
     if ((pathstr = realpath(manfile.c_str(), NULL)) == NULL) {
@@ -323,7 +373,7 @@ std::string run_man(const std::string &manfile) {
     std::string path(pathstr);
     free(pathstr);
 
-    setenv("COLUMNS", "120", 1);
+    setenv("COLUMNS", std::to_string(columns).c_str(), 1);
 
     int readfd; // The fd to read man(1) output from, which is the master of
                 // the pty in the Linux implementation, and the reading end of
@@ -739,6 +789,19 @@ bool operator <(const timespec& lhs, const timespec& rhs) {
     } else {
         return lhs.tv_sec < rhs.tv_sec;
     }
+}
+
+int string2unsigned(const std::string &s) {
+    int sum = 0;
+    for (char c: s) {
+        int ord = (int)c;
+        if (ord >= 48 && ord <= 57) {
+            sum = sum * 10 + ord - 48;
+        } else {
+            return -1;
+        }
+    }
+    return sum;
 }
 
 // Local Variables:

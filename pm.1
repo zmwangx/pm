@@ -1,6 +1,6 @@
 .Dd June 13, 2016
-.Os POSIX
 .Dt PM 1 URM
+.Os POSIX
 .Sh NAME
 .Nm pm
 .Nd preview man page as you edit
@@ -22,11 +22,20 @@ The following options are available:
 .Bl -tag -width indent
 .It Fl h , Fl -help
 Print help text and exit.
+.It Fl V , Fl -version
+Print version info and exit.
+.It Fl w , Fl -width , Fl -columns Ns = Ns Ar WIDTH
+Width of output, i.e., the
+.Ev COLUMNS
+environment variable passed to
+.Xr man 1 .
 .El
 .Sh EXAMPLES
 To preview changes while you edit this very man page, run
 .Pp
 .Dl % pm /path/to/pm.1
+.Sh SEE ALSO
+.Xr man 1
 .Sh AUTHORS
 This manual page was written by
 .An Zhiming Wang Aq Mt zmwangx@gmail.com .
